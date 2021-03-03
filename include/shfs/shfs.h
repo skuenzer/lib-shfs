@@ -221,10 +221,8 @@ static inline void shfs_aio_wait_slot(void) {
  * Internal AIO token management (do not use this functions directly!)
  */
 #ifndef __KERNEL__
-static inline SHFS_AIO_TOKEN *shfs_aio_pick_token(void)
-{
-	return (SHFS_AIO_TOKEN *) uk_allocpool_take(shfs_vol.aiotoken_pool);
-}
+SHFS_AIO_TOKEN *shfs_aio_pick_token(void);
+
 #define shfs_aio_put_token(t) \
 	uk_allocpool_return(shfs_vol.aiotoken_pool, t)
 
