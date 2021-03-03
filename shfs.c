@@ -625,10 +625,6 @@ static int load_vol_htable(void)
 	return ret;
 }
 
-#ifndef __KERNEL__
-static void _aiotoken_pool_obj_init(void *, size_t, void *);
-#endif
-
 /**
  * Mount a SHFS volume
  * The volume is searched on the given list of block devices
@@ -662,9 +658,7 @@ int mount_shfs(const unsigned int bd_id[], unsigned int count)
 		+ (shfs_vol.nb_members * sizeof(struct uk_blkreq));
 	shfs_vol.aiotoken_pool = uk_allocpool_alloc(a, NB_AIOTOKEN,
 						    shfs_vol.aiotoken_len,
-						    sizeof(void *),
-						    _aiotoken_pool_obj_init,
-						    (void *)((uintptr_t) shfs_vol.nb_members));
+						    sizeof(void *));
 	if (!shfs_vol.aiotoken_pool)
 		goto err_close_members;
 	shfs_mounted = 1; /* required by next function calls */
@@ -991,26 +985,29 @@ static void _aiotoken_pool_obj_membercb(struct uk_blkreq *req __unused,
 	}
 }
 
-static void _aiotoken_pool_obj_init(void *t_obj, size_t len, void *cookie)
+SHFS_AIO_TOKEN *shfs_aio_pick_token(void)
 {
-	SHFS_AIO_TOKEN *t = (SHFS_AIO_TOKEN *) t_obj;
-	unsigned int nb_members = (unsigned int)((uintptr_t) cookie);
+	SHFS_AIO_TOKEN *t = (SHFS_AIO_TOKEN *)
+		uk_allocpool_take(shfs_vol.aiotoken_pool);
 	unsigned int i;
 
-	UK_ASSERT(t);
-	UK_ASSERT(nb_members > 0);
-	UK_ASSERT(len >= (sizeof(SHFS_AIO_TOKEN)
-			  + (nb_members * sizeof(struct uk_blkreq))));
+	UK_ASSERT(shfs_vol.nb_members > 0);
+	UK_ASSERT(uk_allocpool_objlen(shfs_vol.aiotoken_pool)
+		  >= (sizeof(SHFS_AIO_TOKEN)
+		      + (shfs_vol.nb_members * sizeof(struct uk_blkreq))));
+
+	if (!t)
+		return NULL;
 
 	t->ret = 0;
 	t->infly = 0;
-	t->nb_members = nb_members;
+	t->nb_members = shfs_vol.nb_members;
 	t->cb = NULL;
 	t->cb_argp = NULL;
 	t->cb_cookie = NULL;
 	t->_prev = t->_next = NULL;
 
-	for (i = 0; i < nb_members; ++i) {
+	for (i = 0; i < shfs_vol.nb_members; ++i) {
 		/* Initialize we will set up I/O location later in shfs_aio_chunk */
 		uk_blkreq_init(&t->req[i],
 			       UK_BLKREQ_READ,
@@ -1018,6 +1015,8 @@ static void _aiotoken_pool_obj_init(void *t_obj, size_t len, void *cookie)
 			       _aiotoken_pool_obj_membercb,
 			       t);
 	}
+
+	return t;
 }
 #endif
 
