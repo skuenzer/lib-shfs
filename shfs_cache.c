@@ -54,23 +54,6 @@
 	((size_t) 0)
 #endif /* __MINIOS__ */
 
-static void _cce_pobj_init(void *obj, size_t len, void *cookie)
-{
-    struct shfs_cache_entry *cce = obj;
-    size_t ioalign = (size_t)((uintptr_t) cookie);
-
-    UK_ASSERT(obj);
-    UK_ASSERT(len >= sizeof(*cce));
-
-    cce->refcount = 0;
-    cce->buffer = (void *) ALIGN_UP((uintptr_t) obj + sizeof(*cce), ioalign);
-    cce->invalid = 1; /* buffer is not ready yet */
-
-    cce->t = NULL;
-    cce->aio_chain.first = NULL;
-    cce->aio_chain.last = NULL;
-}
-
 static inline uint32_t log2(uint32_t v)
 {
   uint32_t i = 0;
@@ -143,17 +126,13 @@ int shfs_alloc_cache(struct uk_alloc *a)
 				    ALIGN_UP(sizeof(struct shfs_cache_entry),
 					     shfs_vol.ioalign)
 				    + shfs_vol.chunksize,
-				    shfs_vol.ioalign,
-				    _cce_pobj_init,
-				    (void *)((uintptr_t) shfs_vol.ioalign));
+				    shfs_vol.ioalign);
 #else
       cc->pool = uk_allocpool_alloc(a, SHFS_CACHE_POOL_NB_BUFFERS,
 				    ALIGN_UP(sizeof(struct shfs_cache_entry),
 					     shfs_vol.ioalign)
 				    + shfs_vol.chunksize,
-				    shfs_vol.ioalign,
-				    _cce_pobj_init,
-				    (void *)((uintptr_t) shfs_vol.ioalign));
+				    shfs_vol.ioalign);
 #endif /* SHFS_CACHE_POOL_MAXALLOC */
     if (!cc->pool) {
 	    uk_pr_debug("Could not allocate cache pool\n");
@@ -192,16 +171,22 @@ static inline struct shfs_cache_entry *shfs_cache_pick_cce(void)
 #ifdef SHFS_CACHE_GROW
     void *buf;
 
+    UK_ASSERT(uk_allocpool_objlen(shfs_vol.chunkcache->pool) >= sizeof(*cce));
+
     if (shfs_vol.chunkcache->pool) {
 #endif
     cce = uk_allocpool_take(shfs_vol.chunkcache->pool);
-
-    /* make sure that obj initialization was executed properly */
-    UK_ASSERT(cce->buffer == (void *) ALIGN_UP((uintptr_t) cce + sizeof(*cce),
-					       shfs_vol.ioalign));
-
     if (cce) {
 	/* got a new buffer */
+	cce->refcount = 0;
+	cce->buffer = (void *) ALIGN_UP((uintptr_t) cce + sizeof(*cce),
+					shfs_vol.ioalign);
+	cce->invalid = 1; /* buffer is not ready yet */
+
+	cce->t = NULL;
+	cce->aio_chain.first = NULL;
+	cce->aio_chain.last = NULL;
+
 	++shfs_vol.chunkcache->nb_entries;
 	return cce;
     }
